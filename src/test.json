@@ -1,0 +1,44 @@
+[
+    "F:\\clients\\strangemother\\backblaze\\test-folder",
+    [
+        [
+            "copy",
+            {
+                "dst": "F:\\tmp",
+                "sync": true,
+                "init_sync_to": true,
+                "init_sync_force": false,
+                "init_sync_back": true,
+                "init_sync_back_on": [
+                    "size",
+                    "modified"
+                ],
+                "init_sync_back_missing": true,
+                "record": true,
+                "dry": true,
+                "ignore": [
+                    "*.pyc",
+                    "**/env/*",
+                    ".git/**/*",
+                    ".git/*",
+                    "![.]git(\\\\|/)*.*"
+                ]
+            }
+        ],
+        [
+            "copy",
+            {
+                "dst": "F:\\tmp2",
+                "sync": true,
+                "init_sync_to": false,
+                "init_sync_force": false,
+                "init_sync_back": true,
+                "init_sync_back_on": [
+                    "size",
+                    "modified"
+                ],
+                "init_sync_back_missing": true
+            }
+        ]
+    ]
+]
