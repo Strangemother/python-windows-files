@@ -44,6 +44,7 @@ master_lock = l
 
 check_lock = asyncio.Lock()
 
+PID = os.getpid()
 
 keep = {'total': 0}
 _ignore = []
@@ -72,7 +73,7 @@ def table_print(results, **kw):
         l = len(str(keep['total'])) + 1
         count = f"{keep['total']:<7,}"# if i == 0 else '  '
         first = '--' if i == 0 else '  '
-        rows += (f' {first} {count} {action:<10} {t:<10} {item[0]}', )
+        rows += (f' {first} {PID} {count} {action:<10} {t:<10} {item[0]}', )
 
     for r in rows:
         print(r)
