@@ -6,7 +6,7 @@ import os
 
 from multiprocessing import Pool
 from contextlib import closing
-from monitor.win import sync_to_async_main, set_keep
+from monitor.awin import sync_to_async_main, set_keep
 from monitor import win
 # import time
 import sys
@@ -40,6 +40,7 @@ def sigin(*a, **kw):
 
 def initializer():
     """Ignore CTRL+C in the worker process."""
+    pass
     # pass
     # signal.signal(signal.SIGINT, sigin)
     ## https://docs.python.org/3/library/signal.html#signal.SIG_IGN

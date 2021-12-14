@@ -1,36 +1,6 @@
 """Detect file changes through the windows api
 """
-
-import os
-import asyncio
-import winerror
-import win32con
-import threading
-import sys
-
-try:
-    import win32file
-except ImportError as e:
-    print('install dll loc:', sys.exec_prefix)
-    os.add_dll_directory(sys.exec_prefix)
-
-
-try:
-    import win32file
-except ImportError as e:
-    print('import win32file (second attempt)', e)
-
-
-try:
-    import win32event
-except ImportError as e:
-    print('Cannot import win32event', e)
-
-import pywintypes
-import time
-import traceback
-import win32api
-
+from .head import *
 
 ACTIONS = {
     1 : "created",
@@ -114,7 +84,6 @@ async def start(watch_dir=None, config=None, callback=None):
     v = await loop(hDir, watch_dir, callback, config=config)
     log('monitor.win.start Done:', v)
     return v
-
 
 
 async def get_hdir(watch_dir):
@@ -291,7 +260,7 @@ async def iter_results(results, root_path, callback, config):
 
 async def cancelable_handle_wait(hDir, win_async=True, **kw):
     try:
-        func = async_wait if win_async else wait
+        func = async_wait # if win_async else wait
         # results = await async_wait(hDir, **kw)
         results = await func(hDir, **kw)
     except KeyboardInterrupt as e:
@@ -326,6 +295,7 @@ async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5
     overlapped = get_overlapped_event()
     run = True
     count = 0
+    config = config or {}
     # results = get_win_changew(hDir, watch_subtree, buffer_size)
 
     while run:
@@ -345,22 +315,25 @@ async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5
         results = process_async_handle(hDir, overlapped, rc, buf)
         _actions = await process_results(results, root_path, callback, config)
         await execute(_actions, callback, config)
-        run = rc in [win32event.WAIT_OBJECT_0, win32event.WAIT_TIMEOUT]
+
         # By adding a sleep here we reduce the response rate of the async
         # waiting. Lesser wait == less events.
-        if keep.get('death', None) is not None:
-            print('Pill death')
-            run = False
-            rc = 0
         await asyncio.sleep(loop_delay)
-
-
-        # if count > 40:
-        #     print('hard kill')
-        #     run = False
+        run = keep_alive(rc, count=count)
 
     print("finished async_wait {:d}. Exiting".format(rc))
     close_overlapped_event(overlapped)
+
+
+def keep_alive(rc, count=-1):
+    """Test for pill death and return a boolean for loop keep alive.
+    """
+    run = rc in [win32event.WAIT_OBJECT_0, win32event.WAIT_TIMEOUT]
+    if keep.get('death', None) is not None:
+        print('Pill death')
+        rc = 0
+        return False
+    return run
 
 
 def process_async_handle(hDir, overlapped, rc, buf):
@@ -392,80 +365,13 @@ async def lock_wait(hDir):
     return l
 
 
-async def wait(hDir, timeout=1000, watch_subtree=True, buffer_size=8192, **kw):
-    overlapped = get_overlapped_event()
-    results = get_win_changew(hDir, watch_subtree, buffer_size)
-    # results, buf = get_win_changew(hDir, watch_subtree, buffer_size)
-    rc = win_wait_for_object(overlapped, timeout)
-    print('End wait', rc)
-    return results
-
-
-def x_wait(hDir, timeout=1000, watch_subtree=True, buffer_size=8192):
-    try:
-        """
-            handle : PyHANDLE
-                Handle to the directory to be monitored.
-                This directory must be opened with the
-                FILE_LIST_DIRECTORY access right.
-            size : int
-                Size of the buffer to allocate for the results.
-            bWatchSubtree : int
-                Specifies whether the ReadDirectoryChangesW function
-                will monitor the directory or the directory tree.
-                If TRUE is specified, the function monitors the
-                directory tree rooted at the specified directory.
-                If FALSE is specified, the function monitors only
-                the directory specified by the hDirectory parameter.
-            dwNotifyFilter : int
-                Specifies filter criteria the function checks to
-                determine if the wait operation has completed.
-                This parameter can be one or more of the
-                FILE_NOTIFY_CHANGE_* values.
-            overlapped=None : PyOVERLAPPED
-                An overlapped object. The directory must also be
-                opened with FILE_FLAG_OVERLAPPED.
-        """
-        # buf = win32file.AllocateReadBuffer(buffer_size)
-        # flags = get_flags()
-        # results = win32file.ReadDirectoryChangesW(
-        #     hDir, buffer_size, watch_subtree, flags, None, None)
-        results = get_win_changew(hDir, watch_subtree, buffer_size)
-        # results, buf = get_win_changew(hDir, watch_subtree, buffer_size)
-        rc = win_wait_for_object(overlapped, timeout)
-
-        # if rc == win32event.WAIT_OBJECT_0:
-            # got some data!  Must use GetOverlappedResult to find out
-            # how much is valid!  0 generally means the handle has
-            # been closed.  Blocking is OK here, as the event has
-            # already been set.
-            # nbytes = win32file.GetOverlappedResult(hDir, overlapped, True)
-            # if nbytes:
-            #     bits = win32file.FILE_NOTIFY_INFORMATION(buf, nbytes)
-            #     log('nbytes', nbytes, bits)
-            # else:
-            #     # This is "normal" exit - our 'tearDown' closes the
-            #     # handle.
-            #     # log "looks like dir handle was closed!"
-            #     log('teardown')
-            #     return
-        # else:
-        #     log('Timeout', hDir, rc)
-        #log('return', results)
-        return results
-
-    except pywintypes.error as e:
-        log('monitor.start - FileError', e)
-        return None
-
-
 def win_wait_for_object(overlapped, timeout=5000):
     return win32event.WaitForSingleObject(overlapped.hEvent, timeout)
 
 
 def win_wait_for_many_objects(*overlapped, timeout=0):
     v = [x.hEvent for x in overlapped]
-    return win32event.WaitForMultipleObjects(v, 0, win32event.INFINITE)
+    return win32event.WaitForMultipleObjects(v, 0, timeout)# win32event.INFINITE)
 
     # if result != win32event.WAIT_TIMEOUT:
     #     # result = win32file.GetOverlappedResult(self.handle, self.overlapped, False)
