@@ -8,9 +8,9 @@ import win32con
 import threading
 import os
 
-os.add_dll_directory(
-    'C:\\Users\\jay\\Documents\\projects\\file-monitor\\env'
-)
+#os.add_dll_directory(
+#    'C:\\Users\\jay\\Documents\\projects\\file-monitor\\env'
+#)
 
 try:
     import win32file
