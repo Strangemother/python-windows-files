@@ -6,6 +6,8 @@ import os
 import time
 from timeit import default_timer as timer
 import asyncio
+from pathlib import Path
+import argparse
 
 
 def main(directory=None):
@@ -57,7 +59,6 @@ def get_path(directory=None):
     return Path(directory).absolute()
 
 
-import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('dir', type=str, nargs='?', default='F:\\Program Files (x86)')
@@ -112,7 +113,6 @@ async def async_list_all(directory, stat_func=None):
         res += (stat_func(entry, path), )
     return res
 
-from pathlib import Path
 
 async def async_depth(directory, depth=2, _current=0, stat_func=None):
     res = ()

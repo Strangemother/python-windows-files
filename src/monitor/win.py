@@ -6,16 +6,20 @@ import asyncio
 import winerror
 import win32con
 import threading
-import os
-
-os.add_dll_directory(
-    'C:\\Users\\jay\\Documents\\projects\\file-monitor\\env'
-)
+import sys
 
 try:
     import win32file
 except ImportError as e:
-    print('Cannot import win32file', e)
+    print('install dll loc:', sys.exec_prefix)
+    os.add_dll_directory(sys.exec_prefix)
+
+
+try:
+    import win32file
+except ImportError as e:
+    print('import win32file (second attempt)', e)
+
 
 try:
     import win32event
@@ -51,6 +55,9 @@ _ignore = []
 _ignore_dirs = []
 top_content = {'step': 0}
 
+def set_keep(k,v):
+    keep[k] = v
+
 # log = print
 def log(*a, **kw): print(" > ", *a, **kw)
 
@@ -83,8 +90,9 @@ def sync_to_async_main(*a, **kw):
     asyncio.run(main(*a, **kw), debug=False)
 
 
+
 async def main(path='C:/', *a, **kw):
-    await start(watch_dir=path, *a, **kw)
+    return await start(watch_dir=path, *a, **kw)
 
 
 async def start(watch_dir=None, config=None, callback=None):
@@ -103,8 +111,10 @@ async def start(watch_dir=None, config=None, callback=None):
     #watch_dir = watch_dir
     hDir = await get_hdir(watch_dir)
 
-    await loop(hDir, watch_dir, callback, config=config)
-    log('monitor.start Done')
+    v = await loop(hDir, watch_dir, callback, config=config)
+    log('monitor.win.start Done:', v)
+    return v
+
 
 
 async def get_hdir(watch_dir):
@@ -154,7 +164,8 @@ async def loop(hDir, root_path, callback, config=None):
         if run is False:
             log('Result is false; stopping monitor.loop for', root_path)
 
-    log('Loop complete')
+    log('Loop complete with fails:', fails)
+    return fails
 
 
 async def loop_step(hDir, root_path, callback, fails=0, config=None):
@@ -223,7 +234,7 @@ async def step(hDir, root_path, callback, config=None):
 
     log('>..', end='')
 
-    ok, results = await cancelable_handle_wait(hDir,
+    ok, results = await uncancelable_handle_wait(hDir,
             win_async=True,
             root_path=root_path,
             callback=callback)
@@ -284,9 +295,22 @@ async def cancelable_handle_wait(hDir, win_async=True, **kw):
         # results = await async_wait(hDir, **kw)
         results = await func(hDir, **kw)
     except KeyboardInterrupt as e:
-        log('Keyboard cancelled')
+        log('Keyboard cancelled:', e)
         return False, None
         # try:
+    except Exception as e:
+        log('monitor.step caught exception.', e)
+        raise e
+
+    await asyncio.sleep(.01)
+    return True, results
+
+
+async def uncancelable_handle_wait(hDir, win_async=True, **kw):
+    try:
+        func = async_wait if win_async else wait
+        # results = await async_wait(hDir, **kw)
+        results = await func(hDir, **kw)
     except Exception as e:
         log('monitor.step caught exception.', e)
         raise e
@@ -308,20 +332,34 @@ async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5
         handle, buf = get_win_async_changew(hDir, overlapped, watch_subtree, buffer_size)
         count += 1
 
-        # rc = win_wait_for_object(overlapped, timeout)
-        rc = win_wait_for_many_objects(overlapped, timeout=win32event.INFINITE)
+        try:
+            # rc = win_wait_for_object(overlapped, timeout)
+            rc = win_wait_for_many_objects(overlapped, timeout=timeout,)
+                                           #timeout=win32event.INFINITE)
+        except KeyboardInterrupt as e:
+            print('cancelled')
+            run = False
+            rc = 0
+            continue
+
         results = process_async_handle(hDir, overlapped, rc, buf)
         _actions = await process_results(results, root_path, callback, config)
         await execute(_actions, callback, config)
         run = rc in [win32event.WAIT_OBJECT_0, win32event.WAIT_TIMEOUT]
         # By adding a sleep here we reduce the response rate of the async
         # waiting. Lesser wait == less events.
+        if keep.get('death', None) is not None:
+            print('Pill death')
+            run = False
+            rc = 0
         await asyncio.sleep(loop_delay)
+
+
         # if count > 40:
         #     print('hard kill')
         #     run = False
 
-    print("Received {:d}. Exiting".format(rc))
+    print("finished async_wait {:d}. Exiting".format(rc))
     close_overlapped_event(overlapped)
 
 
@@ -434,6 +472,7 @@ def win_wait_for_many_objects(*overlapped, timeout=0):
     #     return True
     # else:
     #     return False
+
 
 def get_flags():
     return (
