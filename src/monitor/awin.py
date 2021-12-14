@@ -328,6 +328,7 @@ async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5
 def keep_alive(rc, count=-1):
     """Test for pill death and return a boolean for loop keep alive.
     """
+    print('.')
     run = rc in [win32event.WAIT_OBJECT_0, win32event.WAIT_TIMEOUT]
     if keep.get('death', None) is not None:
         print('Pill death')
