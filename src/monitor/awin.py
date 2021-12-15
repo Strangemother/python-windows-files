@@ -28,6 +28,11 @@ top_content = {'step': 0}
 def set_keep(k,v):
     keep[k] = v
 
+
+def death_pill():
+    set_keep('death', True)
+    win32event.SetEvent(keep['stop_event'])
+
 # log = print
 def log(*a, **kw): print(" > ", *a, **kw)
 
@@ -80,6 +85,7 @@ async def start(watch_dir=None, config=None, callback=None):
     #late_task = asyncio.get_running_loop().create_task(late_call())
     #watch_dir = watch_dir
     hDir = await get_hdir(watch_dir)
+    keep['stop_event'] = win32event.CreateEvent(None, 0, 0, None)
 
     v = await loop(hDir, watch_dir, callback, config=config)
     log('monitor.win.start Done:', v)
@@ -206,6 +212,7 @@ async def step(hDir, root_path, callback, config=None):
     ok, results = await uncancelable_handle_wait(hDir,
             win_async=True,
             root_path=root_path,
+            timeout=win32event.INFINITE,
             callback=callback)
 
     if (results is None) or (ok is False):
@@ -226,11 +233,7 @@ async def process_results(results, root_path, callback, config):
         log('Received lock, will wait again')
         return ()
 
-    try:
-        _actions = await iter_results(results, root_path, callback, config)
-    except Exception as e:
-        log('monitor.step caught exception.', _action, file)
-        # raise e
+    _actions = await iter_results(results, root_path, callback, config)
 
     return _actions
 
@@ -250,39 +253,14 @@ async def iter_results(results, root_path, callback, config):
         _action = (full_filename, ACTIONS.get(action, "Unknown"))
         clean_actions += (_action, )
 
-        # try:
-        # except Exception as e:
-        #     log('monitor.step caught exception.', _action, file)
-        #     raise e
-
     return clean_actions
 
 
-async def cancelable_handle_wait(hDir, win_async=True, **kw):
-    try:
-        func = async_wait # if win_async else wait
-        # results = await async_wait(hDir, **kw)
-        results = await func(hDir, **kw)
-    except KeyboardInterrupt as e:
-        log('Keyboard cancelled:', e)
-        return False, None
-        # try:
-    except Exception as e:
-        log('monitor.step caught exception.', e)
-        raise e
-
-    await asyncio.sleep(.01)
-    return True, results
-
-
 async def uncancelable_handle_wait(hDir, win_async=True, **kw):
-    try:
-        func = async_wait if win_async else wait
-        # results = await async_wait(hDir, **kw)
-        results = await func(hDir, **kw)
-    except Exception as e:
-        log('monitor.step caught exception.', e)
-        raise e
+
+    func = async_wait if win_async else wait
+    # results = await async_wait(hDir, **kw)
+    results = await func(hDir, **kw)
 
     await asyncio.sleep(.01)
     return True, results
@@ -291,21 +269,22 @@ async def uncancelable_handle_wait(hDir, win_async=True, **kw):
 async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5000,
     watch_subtree=True, buffer_size=8192, loop_delay=.3):
 
-    buf = win32file.AllocateReadBuffer(buffer_size)
-    overlapped = get_overlapped_event()
+    # buf = win32file.AllocateReadBuffer(buffer_size)
     run = True
     count = 0
     config = config or {}
     # results = get_win_changew(hDir, watch_subtree, buffer_size)
 
     while run:
+        overlapped = get_overlapped_event()
         handle, buf = get_win_async_changew(hDir, overlapped, watch_subtree, buffer_size)
         count += 1
 
         try:
             # rc = win_wait_for_object(overlapped, timeout)
             rc = win_wait_for_many_objects(overlapped, timeout=timeout,)
-                                           #timeout=win32event.INFINITE)
+                                           # timeout=win32event.INFINITE)
+            print('Step after async_wait.win_wait_for_many_objects', root_path)
         except KeyboardInterrupt as e:
             print('cancelled')
             run = False
@@ -320,15 +299,15 @@ async def async_wait(hDir, root_path=None, callback=None, config=None, timeout=5
         # waiting. Lesser wait == less events.
         await asyncio.sleep(loop_delay)
         run = keep_alive(rc, count=count)
+        close_overlapped_event(overlapped)
 
-    print("finished async_wait {:d}. Exiting".format(rc))
-    close_overlapped_event(overlapped)
+    print("finished async_wait {}. Exiting".format(root_path))
 
 
 def keep_alive(rc, count=-1):
     """Test for pill death and return a boolean for loop keep alive.
     """
-    print('.')
+
     run = rc in [win32event.WAIT_OBJECT_0, win32event.WAIT_TIMEOUT]
     if keep.get('death', None) is not None:
         print('Pill death')
@@ -338,6 +317,8 @@ def keep_alive(rc, count=-1):
 
 
 def process_async_handle(hDir, overlapped, rc, buf):
+    print('.', rc)
+    # if rc == win32event.WAIT_OBJECT_0:
     if rc == win32event.WAIT_OBJECT_0:
         over_res = win32file.GetOverlappedResult(hDir, overlapped, True)
         results = win32file.FILE_NOTIFY_INFORMATION(buf, over_res)
@@ -371,8 +352,19 @@ def win_wait_for_object(overlapped, timeout=5000):
 
 
 def win_wait_for_many_objects(*overlapped, timeout=0):
-    v = [x.hEvent for x in overlapped]
-    return win32event.WaitForMultipleObjects(v, 0, timeout)# win32event.INFINITE)
+    """
+
+    Notably timeout must be INFITNITE on windows 10, as lesser _shuts down_ the
+    waiting event
+    """
+    stop_event = keep['stop_event']
+    v = [x.hEvent for x in overlapped] + [stop_event]
+    try:
+        return win32event.WaitForMultipleObjects(v, 0, timeout)
+    except KeyboardInterrupt:
+        death_pill()
+
+                                                   #win32event.INFINITE)
 
     # if result != win32event.WAIT_TIMEOUT:
     #     # result = win32file.GetOverlappedResult(self.handle, self.overlapped, False)
